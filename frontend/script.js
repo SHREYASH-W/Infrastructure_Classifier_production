@@ -13,8 +13,8 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // Constants
     const CONFIG = {
-        API_URL: 'https://your-render-app-url.onrender.com/predict', // Replace with your Render backend URL
-        TEST_API_URL: 'https://your-render-app-url.onrender.com/test', // Replace with your Render backend URL
+        API_URL: 'https://infrastructure-classifier-production.onrender.com', // Replace with your Render backend URL
+        TEST_API_URL: 'https://infrastructure-classifier-production.onrender.com', // Replace with your Render backend URL
         MAX_FILE_SIZE: 5 * 1024 * 1024, // 5MB
         NOTIFICATION_DURATION: 3000,
         ACCEPTED_FILE_TYPES: ['image/jpeg', 'image/png', 'image/webp'],
