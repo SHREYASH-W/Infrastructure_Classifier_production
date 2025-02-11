@@ -1,0 +1,60 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Infrastructure Analyzer</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="waves-container">
+        <div class="wave"></div>
+        <div class="wave"></div>
+        <div class="wave"></div>
+    </div>
+
+    <main class="container">
+        <div class="glass-card">
+            <h1>Smart Infrastructure Analyzer</h1>
+            <p class="subtitle">Advanced AI-powered infrastructure quality assessment</p>
+
+            <div class="upload-section">
+                <div class="upload-area" id="dropZone">
+                    <i class="fas fa-cloud-upload-alt"></i>
+                    <h3>Drag & Drop Image</h3>
+                    <p>or</p>
+                    <label for="imageUpload" class="upload-btn">Browse Files</label>
+                    <input type="file" id="imageUpload" accept="image/*" hidden>
+                    <p class="upload-info">Supports: JPG, PNG (Max 5MB)</p>
+                </div>
+
+                <div class="preview-section" id="previewSection" hidden>
+                    <div class="preview-container">
+                        <img id="imagePreview" src="#" alt="Preview">
+                        <button class="remove-btn" id="removeImage">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                    <button class="analyze-btn" id="classifyBtn" disabled>
+                        <i class="fas fa-microscope"></i>
+                        Analyze Infrastructure
+                    </button>
+                </div>
+            </div>
+
+            <div class="loading-container" id="loadingContainer" hidden>
+                <div class="pulse-loader"></div>
+                <p>Analyzing infrastructure quality...</p>
+            </div>
+
+            <div class="results" id="result" hidden>
+                <!-- Results will be inserted here by JavaScript -->
+            </div>
+        </div>
+    </main>
+
+    <script src="script.js"></script>
+</body>
+</html>
