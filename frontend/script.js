@@ -41,16 +41,43 @@ document.addEventListener('DOMContentLoaded', function () {
             background-color: #fff3cd;
             color: #856404;
             border: 1px solid #ffeeba;
+            padding: 10px;
+            margin-bottom: 10px;
+            border-radius: 5px;
         }
-        
+        .notification.error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+            padding: 10px;
+            margin-bottom: 10px;
+            border-radius: 5px;
+        }
         .loading-text {
             text-align: center;
             margin-top: 10px;
         }
-        
         .loading-text small {
             color: #666;
             font-size: 0.8em;
+        }
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background-color: #e9ecef;
+            border-radius: 5px;
+            overflow: hidden;
+            margin: 5px 0;
+        }
+        .progress-bar-fill {
+            height: 100%;
+            transition: width 0.3s ease;
+        }
+        .progress-bar-fill.good {
+            background-color: #28a745;
+        }
+        .progress-bar-fill.bad {
+            background-color: #dc3545;
         }
     `;
     document.head.appendChild(style);
@@ -80,7 +107,6 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function handleFile(file) {
         if (!isValidFile(file)) return;
-
         const reader = new FileReader();
         reader.onload = function (e) {
             elements.imagePreview.src = e.target.result;
@@ -122,11 +148,9 @@ document.addEventListener('DOMContentLoaded', function () {
                 handleFile(file);
             }
         };
-
         Object.entries(handlers).forEach(([event, handler]) => {
             elements.dropZone.addEventListener(event, handler, false);
         });
-
         return () => {
             Object.entries(handlers).forEach(([event, handler]) => {
                 elements.dropZone.removeEventListener(event, handler, false);
@@ -137,7 +161,6 @@ document.addEventListener('DOMContentLoaded', function () {
     // API interaction with retry logic
     async function classifyImage(file, retryCount = 2) {
         if (!file) throw new Error('No file provided');
-
         const formData = new FormData();
         formData.append('file', file);
 
@@ -150,7 +173,6 @@ document.addEventListener('DOMContentLoaded', function () {
                 const timeoutPromise = new Promise((_, reject) => {
                     setTimeout(() => reject(new Error('Request timed out')), currentTimeout);
                 });
-
                 const fetchPromise = fetch(CONFIG.API_URL, {
                     method: 'POST',
                     body: formData,
@@ -158,16 +180,12 @@ document.addEventListener('DOMContentLoaded', function () {
                         'Accept': 'application/json'
                     }
                 });
-
                 const response = await Promise.race([fetchPromise, timeoutPromise]);
-                
                 if (!response.ok) {
                     const data = await response.json().catch(() => ({}));
                     throw new Error(data.error || `Server error (${response.status}). Please try again.`);
                 }
-
                 return await response.json();
-
             } catch (error) {
                 if (error.message.includes('timed out') && retryCount > 0) {
                     showNotification(`Cold start detected. Retrying... (${retryCount} attempts remaining)`, 'warning');
@@ -177,7 +195,6 @@ document.addEventListener('DOMContentLoaded', function () {
                 throw error;
             }
         };
-
         return attemptFetch();
     }
 
@@ -191,59 +208,36 @@ document.addEventListener('DOMContentLoaded', function () {
     function createProgressBar(label, value, type) {
         const sanitizedValue = Math.max(0, Math.min(1, value));
         const percentage = (sanitizedValue * 100).toFixed(1);
-        
         return `
             <div class="progress-bar">
-                <span>${label}: ${percentage}%</span>
-                <div class="progress-fill ${type}" 
-                    style="width: ${percentage}%">
-                </div>
+                <div class="progress-bar-fill ${type}" style="width: ${percentage}%"></div>
+                <small>${label}: ${percentage}%</small>
             </div>
         `;
     }
 
     function displayResults(data) {
         if (!data) return;
-
         const resultsHTML = `
-            <div class="result-card">
-                <div class="result-header">
-                    <h2>Analysis Results</h2>
-                    <span class="confidence">
-                        ${(data.quality_confidence * 100).toFixed(1)}% Confidence
-                    </span>
-                </div>
-                
-                <div class="quality-summary">
-                    <h3>${data.is_good === 1 ? 'Good' : 'Poor'} Infrastructure</h3>
-                    <p>Overall Confidence: ${(data.quality_confidence * 100).toFixed(1)}%</p>
-                </div>
-    
-                <div class="quality-distribution">
-                    <h3>Quality Distribution</h3>
-                    ${createProgressBar('Good Infrastructure', data.good_infrastructure_prob, 'good')}
-                    ${createProgressBar('Poor Infrastructure', data.bad_infrastructure_prob, 'bad')}
-                </div>
-    
-                <div class="specific-classification">
-                    <h3>Specific Classification</h3>
-                    <p>Class: ${CLASS_DESCRIPTIONS[data.specific_class] || 'Unknown'}</p>
-                    <p>Class Confidence: ${(data.class_confidence * 100).toFixed(1)}%</p>
-                </div>
-    
-                <div class="individual-probabilities">
-                    <h3>Individual Class Probabilities</h3>
-                    ${data.individual_probs.map((prob, idx) => 
-                        createProgressBar(
-                            CLASS_DESCRIPTIONS[idx] || `Class ${idx}`, 
-                            prob, 
-                            idx < 2 ? 'bad' : 'good'
-                        )
-                    ).join('')}
-                </div>
-            </div>
+            <h3>Analysis Results</h3>
+            <p><strong>${(data.quality_confidence * 100).toFixed(1)}% Confidence</strong></p>
+            <p><strong>${data.is_good === 1 ? 'Good' : 'Poor'} Infrastructure</strong></p>
+            <p>Overall Confidence: ${(data.quality_confidence * 100).toFixed(1)}%</p>
+            <h4>Quality Distribution</h4>
+            ${createProgressBar('Good Infrastructure', data.good_infrastructure_prob, 'good')}
+            ${createProgressBar('Poor Infrastructure', data.bad_infrastructure_prob, 'bad')}
+            <h4>Specific Classification</h4>
+            <p>Class: ${CLASS_DESCRIPTIONS[data.specific_class] || 'Unknown'}</p>
+            <p>Class Confidence: ${(data.class_confidence * 100).toFixed(1)}%</p>
+            <h4>Individual Class Probabilities</h4>
+            ${data.individual_probs.map((prob, idx) =>
+                createProgressBar(
+                    CLASS_DESCRIPTIONS[idx] || `Class ${idx}`,
+                    prob,
+                    idx < 2 ? 'bad' : 'good'
+                )
+            ).join('')}
         `;
-    
         elements.resultSection.innerHTML = resultsHTML;
         elements.resultSection.hidden = false;
         elements.resultSection.classList.add('visible');
@@ -253,9 +247,7 @@ document.addEventListener('DOMContentLoaded', function () {
         const notification = document.createElement('div');
         notification.className = `notification ${type}`;
         notification.textContent = message;
-        
         document.querySelectorAll('.notification').forEach(n => n.remove());
-        
         document.body.appendChild(notification);
         setTimeout(() => {
             notification.remove();
@@ -269,28 +261,21 @@ document.addEventListener('DOMContentLoaded', function () {
             if (!file) {
                 throw new Error('Please select an image first');
             }
-
             elements.classifyBtn.textContent = 'Analyzing...';
             elements.classifyBtn.disabled = true;
             updateUIForClassification(true);
-            
             elements.loadingContainer.innerHTML = `
-                <div class="loading-spinner"></div>
-                <p class="loading-text">Analyzing infrastructure...<br>
-                <small>First analysis may take up to 2-3 minutes due to cold start</small></p>
+                <p>Analyzing infrastructure...</p>
+                <small>First analysis may take up to 2-3 minutes due to cold start</small>
             `;
-            
             const data = await classifyImage(file);
             displayResults(data);
-            
         } catch (error) {
             console.error('Handler error:', error);
             let errorMessage = error.message;
-            
             if (error.message.includes('timed out')) {
                 errorMessage = 'The server is taking longer than expected to respond. Please try again in a few minutes.';
             }
-            
             showNotification(errorMessage, 'error');
             elements.resultSection.innerHTML = '';
         } finally {
@@ -302,9 +287,7 @@ document.addEventListener('DOMContentLoaded', function () {
     // Event listeners setup
     function setupEventListeners() {
         const cleanupDragDrop = setupDragAndDrop();
-
         elements.imageUpload.addEventListener('change', e => handleFile(e.target.files[0]));
-
         elements.removeImageBtn.addEventListener('click', () => {
             elements.imageUpload.value = '';
             elements.previewSection.hidden = true;
@@ -313,9 +296,7 @@ document.addEventListener('DOMContentLoaded', function () {
             elements.resultSection.hidden = true;
             elements.resultSection.innerHTML = '';
         });
-
         elements.classifyBtn.addEventListener('click', handleClassifyClick);
-
         return () => {
             cleanupDragDrop();
             elements.imageUpload.removeEventListener('change', handleFile);
