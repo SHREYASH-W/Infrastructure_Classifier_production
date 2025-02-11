@@ -16,10 +16,10 @@ app = Flask(__name__,
             static_folder='../frontend',  # Point to frontend directory
             static_url_path='')  # Serve static files from root URL
 
-# Configure CORS for localhost
+# Configure CORS for Render and local development
 CORS(app, resources={
     r"/predict": {
-        "origins": ["http://localhost:5000", "http://127.0.0.1:5000"],
+        "origins": ["https://infrastructure-classifier-production.onrender.com", "http://localhost:5000", "http://127.0.0.1:5000"],
         "methods": ["POST", "OPTIONS"],
         "allow_headers": ["Content-Type", "Accept"]
     },
@@ -149,6 +149,11 @@ def health():
         return jsonify({'status': 'error', 'message': 'Model not loaded'}), 500
     return jsonify({'status': 'ok', 'message': 'Model loaded successfully'}), 200
 
+@app.route('/test', methods=['GET'])
+def test():
+    """Test endpoint for debugging"""
+    return jsonify({'message': 'Test successful'}), 200
+
 @app.route('/predict', methods=['POST', 'OPTIONS'])
 def predict():
     """Handle image prediction requests"""
@@ -202,4 +207,4 @@ def internal_server_error(error):
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port, debug=True)  # Set debug=True for development
+    app.run(host='0.0.0.0', port=port, debug=True)
