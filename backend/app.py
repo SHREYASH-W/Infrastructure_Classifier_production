@@ -12,15 +12,15 @@ from functools import lru_cache
 from werkzeug.utils import secure_filename
 
 # Initialize Flask app
-app = Flask(__name__, 
-           static_folder='../frontend',  # Point to frontend directory
-           static_url_path='')  # Serve static files from root URL
+app = Flask(__name__,
+            static_folder='../frontend',  # Point to frontend directory
+            static_url_path='')  # Serve static files from root URL
 
 # Configure CORS with combined settings
 CORS(app, resources={
     r"/predict": {
         "origins": ["https://infrastructure-classifier-production.onrender.com",
-                   "http://localhost:5000"],
+                    "http://localhost:5000"],
         "methods": ["POST", "OPTIONS"],
         "allow_headers": ["Content-Type", "Accept"]
     },
@@ -74,11 +74,7 @@ def load_ml_model():
 def preprocess_image(img_bytes):
     """Preprocess image for model prediction"""
     try:
-        try:
-            img = Image.open(io.BytesIO(img_bytes))
-        except Exception as e:
-            raise ImageProcessingError("Invalid image file")
-
+        img = Image.open(io.BytesIO(img_bytes))
         if img.mode == 'RGBA':
             img = img.convert('RGB')
             
@@ -98,7 +94,6 @@ def analyze_infrastructure(predictions):
     try:
         if not isinstance(predictions, np.ndarray) or predictions.shape[1] != 4:
             raise ValueError("Invalid prediction format")
-
         predictions = predictions.tolist()[0]
         bad_infrastructure_prob = predictions[0] + predictions[1]
         good_infrastructure_prob = predictions[2] + predictions[3]
@@ -148,6 +143,13 @@ def serve_script():
 def serve_style():
     return app.send_static_file('style.css')
 
+@app.route('/health', methods=['GET'])
+def health():
+    """Health check endpoint"""
+    if model is None:
+        return jsonify({'status': 'error', 'message': 'Model not loaded'}), 500
+    return jsonify({'status': 'ok', 'message': 'Model loaded successfully'}), 200
+
 @app.route('/predict', methods=['POST', 'OPTIONS'])
 def predict():
     """Handle image prediction requests"""
@@ -160,36 +162,41 @@ def predict():
         
     try:
         if model is None:
+            logger.error("Model not loaded")
             return jsonify({'error': 'Model not loaded'}), 500
 
         if 'file' not in request.files:
+            logger.error("No file uploaded")
             return jsonify({'error': 'No file uploaded'}), 400
-            
+
         file = request.files['file']
         if not file or not file.filename:
+            logger.error("No file selected")
             return jsonify({'error': 'No file selected'}), 400
-            
+
         if not allowed_file(file.filename):
+            logger.error(f"Invalid file type: {file.filename}")
             return jsonify({'error': 'Invalid file type. Allowed types: PNG, JPG, JPEG, WebP'}), 400
-            
+
         img_bytes = file.read()
         if not img_bytes:
+            logger.error("Empty file uploaded")
             return jsonify({'error': 'Empty file'}), 400
-            
+
         processed_image = preprocess_image(img_bytes)
         predictions = model.predict(processed_image)
         analysis = analyze_infrastructure(predictions)
-        
+
         return jsonify(analysis)
-        
+
     except ImageProcessingError as e:
         logger.error(f"Image processing error: {str(e)}")
         return jsonify({'error': str(e)}), 400
-        
+
     except ModelError as e:
         logger.error(f"Model error: {str(e)}")
         return jsonify({'error': 'Model prediction failed'}), 500
-        
+
     except Exception as e:
         logger.error(f"Unexpected error: {str(e)}")
         return jsonify({'error': 'An unexpected error occurred'}), 500
