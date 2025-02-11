@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, render_template
+from flask import Flask, request, jsonify, make_response, send_from_directory
 from flask_cors import CORS
 import tensorflow as tf
 from tensorflow.keras.models import load_model
@@ -12,12 +12,20 @@ from functools import lru_cache
 from werkzeug.utils import secure_filename
 
 # Initialize Flask app
-app = Flask(__name__)
+app = Flask(__name__, 
+           static_folder='../frontend',  # Point to frontend directory
+           static_url_path='')  # Serve static files from root URL
+
+# Configure CORS
 CORS(app, resources={
-    r"/predict": {  # Apply to /predict endpoint
-        "origins": "*",  # Allow all origins - restrict this in production
-        "methods": ["POST", "OPTIONS"],  # Allow POST and OPTIONS methods
-        "allow_headers": ["Content-Type"]  # Allow Content-Type header
+    r"/predict": {
+        "origins": "*",
+        "methods": ["POST", "OPTIONS"],
+        "allow_headers": ["Content-Type"]
+    },
+    r"/": {
+        "origins": "*",
+        "methods": ["GET"]
     }
 })
 
@@ -28,7 +36,7 @@ class Config:
     MAX_CONTENT_LENGTH = 5 * 1024 * 1024  # 5MB max file size
     IMAGE_SIZE = (224, 224)
     
-# Set up logging with more detailed configuration
+# Set up logging
 logging.basicConfig(
     level=logging.DEBUG,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -65,31 +73,17 @@ def load_ml_model():
 def preprocess_image(img_bytes):
     """
     Preprocess image for model prediction
-    
-    Args:
-        img_bytes: Raw image bytes
-    
-    Returns:
-        numpy.ndarray: Preprocessed image array
-    
-    Raises:
-        ImageProcessingError: If image processing fails
     """
     try:
-        # Validate image file
         try:
             img = Image.open(io.BytesIO(img_bytes))
         except Exception as e:
             raise ImageProcessingError("Invalid image file")
 
-        # Convert RGBA to RGB if necessary
         if img.mode == 'RGBA':
             img = img.convert('RGB')
             
-        # Resize image
         img = img.resize(Config.IMAGE_SIZE)
-        
-        # Convert to array and preprocess
         img_array = image.img_to_array(img)
         img_array = np.expand_dims(img_array, axis=0)
         img_array = img_array / 255.0
@@ -103,29 +97,15 @@ def preprocess_image(img_bytes):
 def analyze_infrastructure(predictions):
     """
     Analyze model predictions to determine infrastructure quality
-    
-    Args:
-        predictions: Model prediction array
-        
-    Returns:
-        dict: Analysis results
     """
     try:
-        # Validate predictions
         if not isinstance(predictions, np.ndarray) or predictions.shape[1] != 4:
             raise ValueError("Invalid prediction format")
 
-        # Convert numpy array to Python list
         predictions = predictions.tolist()[0]
-        
-        # Calculate probabilities
-        bad_infrastructure_prob = predictions[0] + predictions[1]  # Class 0 + Class 1
-        good_infrastructure_prob = predictions[2] + predictions[3]  # Class 2 + Class 3
-        
-        # Get specific class
+        bad_infrastructure_prob = predictions[0] + predictions[1]
+        good_infrastructure_prob = predictions[2] + predictions[3]
         specific_class = np.argmax(predictions)
-        
-        # Determine overall quality
         is_good = int(good_infrastructure_prob > bad_infrastructure_prob)
         
         return {
@@ -143,20 +123,21 @@ def analyze_infrastructure(predictions):
         raise ValueError(f"Error analyzing predictions: {str(e)}")
 
 # Load model at startup
-model = load_ml_model()
+try:
+    model = load_ml_model()
+except Exception as e:
+    logger.error(f"Failed to load model at startup: {str(e)}")
+    model = None
 
 # Routes
 @app.route('/')
 def home():
-    return render_template('index.html')
+    return app.send_static_file('index.html')
 
 @app.route('/predict', methods=['POST', 'OPTIONS'])
 def predict():
-    """
-    Handle image prediction requests
-    """
+    """Handle image prediction requests"""
     if request.method == 'OPTIONS':
-        # Explicit CORS headers for preflight requests
         response = make_response()
         response.headers.add('Access-Control-Allow-Origin', '*')
         response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
@@ -164,7 +145,9 @@ def predict():
         return response, 204
         
     try:
-        # Validate request
+        if model is None:
+            return jsonify({'error': 'Model not loaded'}), 500
+
         if 'file' not in request.files:
             return jsonify({'error': 'No file uploaded'}), 400
             
@@ -175,17 +158,12 @@ def predict():
         if not allowed_file(file.filename):
             return jsonify({'error': 'Invalid file type. Allowed types: PNG, JPG, JPEG, WebP'}), 400
             
-        # Process image
         img_bytes = file.read()
         if not img_bytes:
             return jsonify({'error': 'Empty file'}), 400
             
         processed_image = preprocess_image(img_bytes)
-        
-        # Get predictions
         predictions = model.predict(processed_image)
-        
-        # Analyze results
         analysis = analyze_infrastructure(predictions)
         
         return jsonify(analysis)
@@ -212,9 +190,4 @@ def internal_server_error(error):
     return jsonify({'error': 'Internal server error'}), 500
 
 if __name__ == '__main__':
-    # Verify model loading before starting server
-    try:
-        model = load_ml_model()
-        app.run(debug=False)  # Set debug=False in production
-    except ModelError as e:
-        logger.critical(f"Failed to start server: {str(e)}")
+    app.run(debug=False)  # Set debug=False in production
