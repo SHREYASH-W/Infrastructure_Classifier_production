@@ -19,7 +19,7 @@ app = Flask(__name__,
 # Configure CORS for Render and local development
 CORS(app, resources={
     r"/predict": {
-        "origins": ["https://infrastructure-classifier-production.onrender.com", "http://localhost:5000", "http://127.0.0.1:5000"],
+        "origins": "https://infrastructure-classifier-production.onrender.com",
         "methods": ["POST", "OPTIONS"],
         "allow_headers": ["Content-Type", "Accept"]
     },
@@ -123,7 +123,6 @@ except Exception as e:
 # Add header middleware
 @app.after_request
 def add_header(response):
-    response.headers['Access-Control-Allow-Origin'] = '*'
     response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
     response.headers['Pragma'] = 'no-cache'
     response.headers['Expires'] = '0'
@@ -168,24 +167,30 @@ def predict():
         if model is None:
             logger.error("Model not loaded")
             return jsonify({'error': 'Model not loaded'}), 500
+
         if 'file' not in request.files:
             logger.error("No file uploaded")
             return jsonify({'error': 'No file uploaded'}), 400
+
         file = request.files['file']
         if not file or not file.filename:
             logger.error("No file selected")
             return jsonify({'error': 'No file selected'}), 400
+
         if not allowed_file(file.filename):
             logger.error(f"Invalid file type: {file.filename}")
             return jsonify({'error': 'Invalid file type. Allowed types: PNG, JPG, JPEG, WebP'}), 400
+
         img_bytes = file.read()
         if not img_bytes:
             logger.error("Empty file uploaded")
             return jsonify({'error': 'Empty file'}), 400
+
         processed_image = preprocess_image(img_bytes)
         predictions = model.predict(processed_image)
         analysis = analyze_infrastructure(predictions)
         return jsonify(analysis)
+
     except ImageProcessingError as e:
         logger.error(f"Image processing error: {str(e)}")
         return jsonify({'error': str(e)}), 400
@@ -198,13 +203,13 @@ def predict():
 
 # Error handlers
 @app.errorhandler(413)
-def request_entity_too_large(error):
+def request_entity_too_large(_):
     return jsonify({'error': 'File too large. Maximum size is 5MB'}), 413
 
 @app.errorhandler(500)
-def internal_server_error(error):
+def internal_server_error(_):
     return jsonify({'error': 'Internal server error'}), 500
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port, debug=True)
+    app.run(host='0.0.0.0', port=port, debug=True, threaded=True)
