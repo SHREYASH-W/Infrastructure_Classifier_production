@@ -16,14 +16,15 @@ app = Flask(__name__,
            static_folder='../frontend',  # Point to frontend directory
            static_url_path='')  # Serve static files from root URL
 
-# Configure CORS
+# Configure CORS with combined settings
 CORS(app, resources={
     r"/predict": {
-        "origins": "*",
+        "origins": ["https://infrastructure-classifier-production.onrender.com",
+                   "http://localhost:5000"],
         "methods": ["POST", "OPTIONS"],
-        "allow_headers": ["Content-Type"]
+        "allow_headers": ["Content-Type", "Accept"]
     },
-    r"/": {
+    r"/*": {
         "origins": "*",
         "methods": ["GET"]
     }
@@ -35,7 +36,7 @@ class Config:
     ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'webp'}
     MAX_CONTENT_LENGTH = 5 * 1024 * 1024  # 5MB max file size
     IMAGE_SIZE = (224, 224)
-    
+
 # Set up logging
 logging.basicConfig(
     level=logging.DEBUG,
@@ -71,9 +72,7 @@ def load_ml_model():
         raise ModelError("Failed to load machine learning model")
 
 def preprocess_image(img_bytes):
-    """
-    Preprocess image for model prediction
-    """
+    """Preprocess image for model prediction"""
     try:
         try:
             img = Image.open(io.BytesIO(img_bytes))
@@ -95,9 +94,7 @@ def preprocess_image(img_bytes):
         raise ImageProcessingError(f"Error processing image: {str(e)}")
 
 def analyze_infrastructure(predictions):
-    """
-    Analyze model predictions to determine infrastructure quality
-    """
+    """Analyze model predictions to determine infrastructure quality"""
     try:
         if not isinstance(predictions, np.ndarray) or predictions.shape[1] != 4:
             raise ValueError("Invalid prediction format")
@@ -129,10 +126,27 @@ except Exception as e:
     logger.error(f"Failed to load model at startup: {str(e)}")
     model = None
 
+# Add header middleware
+@app.after_request
+def add_header(response):
+    response.headers['Access-Control-Allow-Origin'] = '*'
+    response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
+    return response
+
 # Routes
 @app.route('/')
 def home():
     return app.send_static_file('index.html')
+
+@app.route('/script.js')
+def serve_script():
+    return app.send_static_file('script.js')
+
+@app.route('/style.css')
+def serve_style():
+    return app.send_static_file('style.css')
 
 @app.route('/predict', methods=['POST', 'OPTIONS'])
 def predict():
@@ -140,7 +154,7 @@ def predict():
     if request.method == 'OPTIONS':
         response = make_response()
         response.headers.add('Access-Control-Allow-Origin', '*')
-        response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Accept')
         response.headers.add('Access-Control-Allow-Methods', 'POST')
         return response, 204
         
@@ -190,4 +204,5 @@ def internal_server_error(error):
     return jsonify({'error': 'Internal server error'}), 500
 
 if __name__ == '__main__':
-    app.run(debug=False)  # Set debug=False in production
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port, debug=False)  # Set debug=False in production

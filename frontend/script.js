@@ -13,10 +13,11 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // Constants
     const CONFIG = {
-        API_URL: 'https://infrastructure-classifier-production.onrender.com/predict', // Add /predict here
+        API_URL: 'https://infrastructure-classifier-production.onrender.com/predict',
         MAX_FILE_SIZE: 5 * 1024 * 1024, // 5MB
         NOTIFICATION_DURATION: 3000,
-        ACCEPTED_FILE_TYPES: ['image/jpeg', 'image/png', 'image/webp']
+        ACCEPTED_FILE_TYPES: ['image/jpeg', 'image/png', 'image/webp'],
+        LOADING_TIMEOUT: 60000 // 60 second timeout for Render's cold starts
     };
 
     const CLASS_DESCRIPTIONS = [
@@ -38,11 +39,11 @@ document.addEventListener('DOMContentLoaded', function () {
     function isValidFile(file) {
         if (!file) return false;
         if (file.size > CONFIG.MAX_FILE_SIZE) {
-            showNotification('File size exceeds 5MB limit', 'error');
+            showNotification('File too large. Maximum size is 5MB', 'error');
             return false;
         }
         if (!CONFIG.ACCEPTED_FILE_TYPES.includes(file.type)) {
-            showNotification('Please upload a valid image file (JPEG, PNG, or WebP)', 'error');
+            showNotification('Invalid file type. Allowed types: PNG, JPG, JPEG, WebP', 'error');
             return false;
         }
         return true;
@@ -102,19 +103,38 @@ document.addEventListener('DOMContentLoaded', function () {
         formData.append('file', file);
 
         try {
-            const response = await fetch(CONFIG.API_URL, {
-                method: 'POST',
-                body: formData
+            // Create timeout promise
+            const timeoutPromise = new Promise((_, reject) => {
+                setTimeout(() => reject(new Error('Request timed out. This might be due to a cold start. Please try again.')), 
+                    CONFIG.LOADING_TIMEOUT);
             });
 
+            // Create fetch promise with proper headers
+            const fetchPromise = fetch(CONFIG.API_URL, {
+                method: 'POST',
+                body: formData,
+                headers: {
+                    'Accept': 'application/json'
+                }
+            });
+
+            // Race between fetch and timeout
+            const response = await Promise.race([fetchPromise, timeoutPromise]);
+            
             if (!response.ok) {
-                const error = await response.json();
-                throw new Error(error.error || `HTTP error! status: ${response.status}`);
+                const data = await response.json().catch(() => ({}));
+                throw new Error(data.error || `Server error (${response.status}). Please try again.`);
             }
 
-            return await response.json();
+            const data = await response.json();
+            return data;
+
         } catch (error) {
-            throw new Error(error.message || 'Classification failed');
+            console.error('Classification error:', error);
+            if (error.message.includes('timed out')) {
+                throw new Error('Analysis is taking longer than expected (possibly due to cold start). Please try again.');
+            }
+            throw new Error(error.message || 'Classification failed. Please try again.');
         }
     }
 
@@ -189,6 +209,26 @@ document.addEventListener('DOMContentLoaded', function () {
         setTimeout(() => notification.remove(), CONFIG.NOTIFICATION_DURATION);
     }
 
+    // Updated click handler with better error handling
+    async function handleClassifyClick() {
+        try {
+            elements.classifyBtn.textContent = 'Analyzing...';
+            elements.classifyBtn.disabled = true;
+            updateUIForClassification(true);
+            
+            const data = await classifyImage(elements.imageUpload.files[0]);
+            displayResults(data);
+            
+        } catch (error) {
+            console.error('Handler error:', error);
+            showNotification(error.message, 'error');
+            elements.resultSection.innerHTML = ''; // Clear any partial results
+        } finally {
+            updateUIForClassification(false);
+            elements.classifyBtn.textContent = 'Analyze Infrastructure';
+        }
+    }
+
     // Event listeners
     function setupEventListeners() {
         elements.imageUpload.addEventListener('change', e => handleFile(e.target.files[0]));
@@ -199,19 +239,10 @@ document.addEventListener('DOMContentLoaded', function () {
             elements.dropZone.hidden = false;
             elements.classifyBtn.disabled = true;
             elements.resultSection.hidden = true;
+            elements.resultSection.innerHTML = '';
         });
 
-        elements.classifyBtn.addEventListener('click', async () => {
-            try {
-                updateUIForClassification(true);
-                const data = await classifyImage(elements.imageUpload.files[0]);
-                displayResults(data);
-            } catch (error) {
-                showNotification(error.message, 'error');
-            } finally {
-                updateUIForClassification(false);
-            }
-        });
+        elements.classifyBtn.addEventListener('click', handleClassifyClick);
     }
 
     // Initialize
