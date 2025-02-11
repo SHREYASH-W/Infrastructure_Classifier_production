@@ -13,7 +13,13 @@ from werkzeug.utils import secure_filename
 
 # Initialize Flask app
 app = Flask(__name__)
-CORS(app)
+CORS(app, resources={
+    r"/predict": {  # Apply to /predict endpoint
+        "origins": "*",  # Allow all origins - restrict this in production
+        "methods": ["POST", "OPTIONS"],  # Allow POST and OPTIONS methods
+        "allow_headers": ["Content-Type"]  # Allow Content-Type header
+    }
+})
 
 # Configuration
 class Config:
@@ -150,7 +156,12 @@ def predict():
     Handle image prediction requests
     """
     if request.method == 'OPTIONS':
-        return '', 204
+        # Explicit CORS headers for preflight requests
+        response = make_response()
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
+        response.headers.add('Access-Control-Allow-Methods', 'POST')
+        return response, 204
         
     try:
         # Validate request

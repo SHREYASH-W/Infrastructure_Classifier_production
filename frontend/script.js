@@ -13,7 +13,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // Constants
     const CONFIG = {
-        API_URL: 'https://infrastructure-classifier-production.onrender.com/predict',
+        API_URL: 'https://infrastructure-classifier-production.onrender.com/predict', // Add /predict here
         MAX_FILE_SIZE: 5 * 1024 * 1024, // 5MB
         NOTIFICATION_DURATION: 3000,
         ACCEPTED_FILE_TYPES: ['image/jpeg', 'image/png', 'image/webp']
