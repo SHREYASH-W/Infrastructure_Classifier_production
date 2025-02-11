@@ -17,7 +17,14 @@ document.addEventListener('DOMContentLoaded', function () {
         MAX_FILE_SIZE: 5 * 1024 * 1024, // 5MB
         NOTIFICATION_DURATION: 3000,
         ACCEPTED_FILE_TYPES: ['image/jpeg', 'image/png', 'image/webp'],
-        LOADING_TIMEOUT: 60000 // 60 second timeout for Render's cold starts
+        LOADING_TIMEOUT: 60000, // 60 second base timeout
+        ERROR_MESSAGES: {
+            FILE_TOO_LARGE: 'File too large. Maximum size is 5MB',
+            INVALID_FILE_TYPE: 'Invalid file type. Allowed types: PNG, JPG, JPEG, WebP',
+            FILE_READ_ERROR: 'Error reading file',
+            COLD_START: 'Analysis is taking longer than expected (possibly due to cold start). Please try again.',
+            GENERIC_ERROR: 'Classification failed. Please try again.'
+        }
     };
 
     const CLASS_DESCRIPTIONS = [
@@ -27,11 +34,33 @@ document.addEventListener('DOMContentLoaded', function () {
         "Good Infrastructure (Type B)"
     ];
 
+    // Add CSS styles for notifications and loading
+    const style = document.createElement('style');
+    style.textContent = `
+        .notification.warning {
+            background-color: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeeba;
+        }
+        
+        .loading-text {
+            text-align: center;
+            margin-top: 10px;
+        }
+        
+        .loading-text small {
+            color: #666;
+            font-size: 0.8em;
+        }
+    `;
+    document.head.appendChild(style);
+
     // Validate that all required DOM elements are present
-    for (const [key, element] of Object.entries(elements)) {
-        if (!element) {
-            console.error(`Required element '${key}' not found`);
-            return;
+    function validateElements() {
+        for (const [key, element] of Object.entries(elements)) {
+            if (!element) {
+                throw new Error(`Required element '${key}' not found`);
+            }
         }
     }
 
@@ -39,11 +68,11 @@ document.addEventListener('DOMContentLoaded', function () {
     function isValidFile(file) {
         if (!file) return false;
         if (file.size > CONFIG.MAX_FILE_SIZE) {
-            showNotification('File too large. Maximum size is 5MB', 'error');
+            showNotification(CONFIG.ERROR_MESSAGES.FILE_TOO_LARGE, 'error');
             return false;
         }
         if (!CONFIG.ACCEPTED_FILE_TYPES.includes(file.type)) {
-            showNotification('Invalid file type. Allowed types: PNG, JPG, JPEG, WebP', 'error');
+            showNotification(CONFIG.ERROR_MESSAGES.INVALID_FILE_TYPE, 'error');
             return false;
         }
         return true;
@@ -58,84 +87,98 @@ document.addEventListener('DOMContentLoaded', function () {
             elements.previewSection.hidden = false;
             elements.dropZone.hidden = true;
             elements.classifyBtn.disabled = false;
+            elements.resultSection.hidden = true;
+            elements.resultSection.innerHTML = '';
         };
         reader.onerror = function () {
-            showNotification('Error reading file', 'error');
+            showNotification(CONFIG.ERROR_MESSAGES.FILE_READ_ERROR, 'error');
         };
         reader.readAsDataURL(file);
     }
 
     // Drag and drop handlers
     function setupDragAndDrop() {
-        const events = {
-            dragenter: highlight,
-            dragover: highlight,
-            dragleave: unhighlight,
-            drop: handleDrop
-        };
-
-        Object.entries(events).forEach(([event, handler]) => {
-            elements.dropZone.addEventListener(event, (e) => {
+        const handlers = {
+            dragenter: (e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                handler(e);
-            }, false);
+                elements.dropZone.classList.add('highlight');
+            },
+            dragover: (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                elements.dropZone.classList.add('highlight');
+            },
+            dragleave: (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                elements.dropZone.classList.remove('highlight');
+            },
+            drop: (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                elements.dropZone.classList.remove('highlight');
+                const file = e.dataTransfer.files[0];
+                handleFile(file);
+            }
+        };
+
+        Object.entries(handlers).forEach(([event, handler]) => {
+            elements.dropZone.addEventListener(event, handler, false);
         });
+
+        return () => {
+            Object.entries(handlers).forEach(([event, handler]) => {
+                elements.dropZone.removeEventListener(event, handler, false);
+            });
+        };
     }
 
-    function highlight() {
-        elements.dropZone.classList.add('highlight');
-    }
+    // API interaction with retry logic
+    async function classifyImage(file, retryCount = 2) {
+        if (!file) throw new Error('No file provided');
 
-    function unhighlight() {
-        elements.dropZone.classList.remove('highlight');
-    }
-
-    function handleDrop(e) {
-        unhighlight();
-        const file = e.dataTransfer.files[0];
-        handleFile(file);
-    }
-
-    // API interaction
-    async function classifyImage(file) {
         const formData = new FormData();
         formData.append('file', file);
 
-        try {
-            // Create timeout promise
-            const timeoutPromise = new Promise((_, reject) => {
-                setTimeout(() => reject(new Error('Request timed out. This might be due to a cold start. Please try again.')), 
-                    CONFIG.LOADING_TIMEOUT);
-            });
+        // Incrementally increase timeout for retries
+        const baseTimeout = CONFIG.LOADING_TIMEOUT;
+        const currentTimeout = baseTimeout * (retryCount + 1);
 
-            // Create fetch promise with proper headers
-            const fetchPromise = fetch(CONFIG.API_URL, {
-                method: 'POST',
-                body: formData,
-                headers: {
-                    'Accept': 'application/json'
+        const attemptFetch = async () => {
+            try {
+                const timeoutPromise = new Promise((_, reject) => {
+                    setTimeout(() => reject(new Error('Request timed out')), currentTimeout);
+                });
+
+                const fetchPromise = fetch(CONFIG.API_URL, {
+                    method: 'POST',
+                    body: formData,
+                    headers: {
+                        'Accept': 'application/json'
+                    }
+                });
+
+                const response = await Promise.race([fetchPromise, timeoutPromise]);
+                
+                if (!response.ok) {
+                    const data = await response.json().catch(() => ({}));
+                    throw new Error(data.error || `Server error (${response.status}). Please try again.`);
                 }
-            });
 
-            // Race between fetch and timeout
-            const response = await Promise.race([fetchPromise, timeoutPromise]);
-            
-            if (!response.ok) {
-                const data = await response.json().catch(() => ({}));
-                throw new Error(data.error || `Server error (${response.status}). Please try again.`);
+                return await response.json();
+
+            } catch (error) {
+                if (error.message.includes('timed out') && retryCount > 0) {
+                    showNotification(`Cold start detected. Retrying... (${retryCount} attempts remaining)`, 'warning');
+                    return new Promise(resolve => setTimeout(resolve, 2000))
+                        .then(() => classifyImage(file, retryCount - 1));
+                }
+                throw error;
             }
+        };
 
-            const data = await response.json();
-            return data;
-
-        } catch (error) {
-            console.error('Classification error:', error);
-            if (error.message.includes('timed out')) {
-                throw new Error('Analysis is taking longer than expected (possibly due to cold start). Please try again.');
-            }
-            throw new Error(error.message || 'Classification failed. Please try again.');
-        }
+        return attemptFetch();
     }
 
     // UI updates
@@ -146,17 +189,22 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function createProgressBar(label, value, type) {
+        const sanitizedValue = Math.max(0, Math.min(1, value));
+        const percentage = (sanitizedValue * 100).toFixed(1);
+        
         return `
             <div class="progress-bar">
-                <span>${label}: ${(value * 100).toFixed(1)}%</span>
+                <span>${label}: ${percentage}%</span>
                 <div class="progress-fill ${type}" 
-                    style="width: ${value * 100}%">
+                    style="width: ${percentage}%">
                 </div>
             </div>
         `;
     }
 
     function displayResults(data) {
+        if (!data) return;
+
         const resultsHTML = `
             <div class="result-card">
                 <div class="result-header">
@@ -179,14 +227,18 @@ document.addEventListener('DOMContentLoaded', function () {
     
                 <div class="specific-classification">
                     <h3>Specific Classification</h3>
-                    <p>Class: ${CLASS_DESCRIPTIONS[data.specific_class]}</p>
+                    <p>Class: ${CLASS_DESCRIPTIONS[data.specific_class] || 'Unknown'}</p>
                     <p>Class Confidence: ${(data.class_confidence * 100).toFixed(1)}%</p>
                 </div>
     
                 <div class="individual-probabilities">
                     <h3>Individual Class Probabilities</h3>
                     ${data.individual_probs.map((prob, idx) => 
-                        createProgressBar(CLASS_DESCRIPTIONS[idx], prob, idx < 2 ? 'bad' : 'good')
+                        createProgressBar(
+                            CLASS_DESCRIPTIONS[idx] || `Class ${idx}`, 
+                            prob, 
+                            idx < 2 ? 'bad' : 'good'
+                        )
                     ).join('')}
                 </div>
             </div>
@@ -202,35 +254,55 @@ document.addEventListener('DOMContentLoaded', function () {
         notification.className = `notification ${type}`;
         notification.textContent = message;
         
-        // Remove existing notifications
         document.querySelectorAll('.notification').forEach(n => n.remove());
         
         document.body.appendChild(notification);
-        setTimeout(() => notification.remove(), CONFIG.NOTIFICATION_DURATION);
+        setTimeout(() => {
+            notification.remove();
+        }, CONFIG.NOTIFICATION_DURATION);
     }
 
-    // Updated click handler with better error handling
+    // Main classify handler
     async function handleClassifyClick() {
         try {
+            const file = elements.imageUpload.files[0];
+            if (!file) {
+                throw new Error('Please select an image first');
+            }
+
             elements.classifyBtn.textContent = 'Analyzing...';
             elements.classifyBtn.disabled = true;
             updateUIForClassification(true);
             
-            const data = await classifyImage(elements.imageUpload.files[0]);
+            elements.loadingContainer.innerHTML = `
+                <div class="loading-spinner"></div>
+                <p class="loading-text">Analyzing infrastructure...<br>
+                <small>First analysis may take up to 2-3 minutes due to cold start</small></p>
+            `;
+            
+            const data = await classifyImage(file);
             displayResults(data);
             
         } catch (error) {
             console.error('Handler error:', error);
-            showNotification(error.message, 'error');
-            elements.resultSection.innerHTML = ''; // Clear any partial results
+            let errorMessage = error.message;
+            
+            if (error.message.includes('timed out')) {
+                errorMessage = 'The server is taking longer than expected to respond. Please try again in a few minutes.';
+            }
+            
+            showNotification(errorMessage, 'error');
+            elements.resultSection.innerHTML = '';
         } finally {
             updateUIForClassification(false);
             elements.classifyBtn.textContent = 'Analyze Infrastructure';
         }
     }
 
-    // Event listeners
+    // Event listeners setup
     function setupEventListeners() {
+        const cleanupDragDrop = setupDragAndDrop();
+
         elements.imageUpload.addEventListener('change', e => handleFile(e.target.files[0]));
 
         elements.removeImageBtn.addEventListener('click', () => {
@@ -243,9 +315,21 @@ document.addEventListener('DOMContentLoaded', function () {
         });
 
         elements.classifyBtn.addEventListener('click', handleClassifyClick);
+
+        return () => {
+            cleanupDragDrop();
+            elements.imageUpload.removeEventListener('change', handleFile);
+            elements.removeImageBtn.removeEventListener('click');
+            elements.classifyBtn.removeEventListener('click', handleClassifyClick);
+        };
     }
 
-    // Initialize
-    setupDragAndDrop();
-    setupEventListeners();
+    // Initialize application
+    try {
+        validateElements();
+        setupEventListeners();
+    } catch (error) {
+        console.error('Initialization error:', error);
+        showNotification('Failed to initialize application', 'error');
+    }
 });
