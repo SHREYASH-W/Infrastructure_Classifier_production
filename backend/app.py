@@ -8,71 +8,167 @@ from PIL import Image
 import io
 import logging
 import os
+from functools import lru_cache
+from werkzeug.utils import secure_filename
 
+# Initialize Flask app
 app = Flask(__name__)
 CORS(app)
 
-# Set up logging
-logging.basicConfig(level=logging.DEBUG)
+# Configuration
+class Config:
+    MODEL_PATH = os.path.join(os.path.dirname(__file__), "infrastructure_model.h5")
+    ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'webp'}
+    MAX_CONTENT_LENGTH = 5 * 1024 * 1024  # 5MB max file size
+    IMAGE_SIZE = (224, 224)
+    
+# Set up logging with more detailed configuration
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('app.log'),
+        logging.StreamHandler()
+    ]
+)
 logger = logging.getLogger(__name__)
 
-# Load the model
-MODEL_PATH = os.path.join(os.path.dirname(__file__), "infrastructure_model.h5")
-model = load_model(MODEL_PATH)
+# Custom exceptions
+class ModelError(Exception):
+    pass
+
+class ImageProcessingError(Exception):
+    pass
+
+# Utility functions
+def allowed_file(filename):
+    return '.' in filename and \
+           filename.rsplit('.', 1)[1].lower() in Config.ALLOWED_EXTENSIONS
+
+@lru_cache(maxsize=1)
+def load_ml_model():
+    """Load the ML model with caching"""
+    try:
+        model = load_model(Config.MODEL_PATH)
+        logger.info("Model loaded successfully")
+        return model
+    except Exception as e:
+        logger.error(f"Failed to load model: {str(e)}")
+        raise ModelError("Failed to load machine learning model")
 
 def preprocess_image(img_bytes):
-    img = Image.open(io.BytesIO(img_bytes))
-    img = img.resize((224, 224))
-    img_array = image.img_to_array(img)
-    img_array = np.expand_dims(img_array, axis=0)
-    img_array = img_array / 255.0
-    return img_array
+    """
+    Preprocess image for model prediction
+    
+    Args:
+        img_bytes: Raw image bytes
+    
+    Returns:
+        numpy.ndarray: Preprocessed image array
+    
+    Raises:
+        ImageProcessingError: If image processing fails
+    """
+    try:
+        # Validate image file
+        try:
+            img = Image.open(io.BytesIO(img_bytes))
+        except Exception as e:
+            raise ImageProcessingError("Invalid image file")
+
+        # Convert RGBA to RGB if necessary
+        if img.mode == 'RGBA':
+            img = img.convert('RGB')
+            
+        # Resize image
+        img = img.resize(Config.IMAGE_SIZE)
+        
+        # Convert to array and preprocess
+        img_array = image.img_to_array(img)
+        img_array = np.expand_dims(img_array, axis=0)
+        img_array = img_array / 255.0
+        
+        return img_array
+        
+    except Exception as e:
+        logger.error(f"Error preprocessing image: {str(e)}")
+        raise ImageProcessingError(f"Error processing image: {str(e)}")
 
 def analyze_infrastructure(predictions):
     """
-    Analyze predictions to determine infrastructure quality
+    Analyze model predictions to determine infrastructure quality
+    
+    Args:
+        predictions: Model prediction array
+        
+    Returns:
+        dict: Analysis results
     """
-    # Convert numpy array to Python list
-    predictions = predictions.tolist()
-    
-    # Get probabilities for each category
-    bad_infrastructure_prob = predictions[0][0] + predictions[0][1]  # Class 0 + Class 1
-    good_infrastructure_prob = predictions[0][2] + predictions[0][3]  # Class 2 + Class 3
-    
-    # Get individual class probabilities
-    class_probs = predictions[0]
-    specific_class = np.argmax(class_probs)
-    
-    # Determine overall quality (convert bool to int)
-    is_good = 1 if good_infrastructure_prob > bad_infrastructure_prob else 0
-    
-    return {
-        'is_good': is_good,  # 1 for good, 0 for bad
-        'quality_confidence': float(max(good_infrastructure_prob, bad_infrastructure_prob)),
-        'specific_class': int(specific_class),
-        'class_confidence': float(class_probs[specific_class]),
-        'bad_infrastructure_prob': float(bad_infrastructure_prob),
-        'good_infrastructure_prob': float(good_infrastructure_prob),
-        'individual_probs': [float(p) for p in class_probs]
-    }
+    try:
+        # Validate predictions
+        if not isinstance(predictions, np.ndarray) or predictions.shape[1] != 4:
+            raise ValueError("Invalid prediction format")
 
+        # Convert numpy array to Python list
+        predictions = predictions.tolist()[0]
+        
+        # Calculate probabilities
+        bad_infrastructure_prob = predictions[0] + predictions[1]  # Class 0 + Class 1
+        good_infrastructure_prob = predictions[2] + predictions[3]  # Class 2 + Class 3
+        
+        # Get specific class
+        specific_class = np.argmax(predictions)
+        
+        # Determine overall quality
+        is_good = int(good_infrastructure_prob > bad_infrastructure_prob)
+        
+        return {
+            'is_good': is_good,
+            'quality_confidence': float(max(good_infrastructure_prob, bad_infrastructure_prob)),
+            'specific_class': int(specific_class),
+            'class_confidence': float(predictions[specific_class]),
+            'bad_infrastructure_prob': float(bad_infrastructure_prob),
+            'good_infrastructure_prob': float(good_infrastructure_prob),
+            'individual_probs': [float(p) for p in predictions]
+        }
+        
+    except Exception as e:
+        logger.error(f"Error analyzing predictions: {str(e)}")
+        raise ValueError(f"Error analyzing predictions: {str(e)}")
+
+# Load model at startup
+model = load_ml_model()
+
+# Routes
 @app.route('/')
 def home():
     return render_template('index.html')
 
 @app.route('/predict', methods=['POST', 'OPTIONS'])
 def predict():
+    """
+    Handle image prediction requests
+    """
     if request.method == 'OPTIONS':
         return '', 204
         
     try:
+        # Validate request
         if 'file' not in request.files:
             return jsonify({'error': 'No file uploaded'}), 400
-        
+            
         file = request.files['file']
+        if not file or not file.filename:
+            return jsonify({'error': 'No file selected'}), 400
+            
+        if not allowed_file(file.filename):
+            return jsonify({'error': 'Invalid file type. Allowed types: PNG, JPG, JPEG, WebP'}), 400
+            
+        # Process image
         img_bytes = file.read()
-        
-        # Preprocess the image
+        if not img_bytes:
+            return jsonify({'error': 'Empty file'}), 400
+            
         processed_image = preprocess_image(img_bytes)
         
         # Get predictions
@@ -83,9 +179,31 @@ def predict():
         
         return jsonify(analysis)
         
+    except ImageProcessingError as e:
+        logger.error(f"Image processing error: {str(e)}")
+        return jsonify({'error': str(e)}), 400
+        
+    except ModelError as e:
+        logger.error(f"Model error: {str(e)}")
+        return jsonify({'error': 'Model prediction failed'}), 500
+        
     except Exception as e:
-        logger.error(f"Error during prediction: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+        logger.error(f"Unexpected error: {str(e)}")
+        return jsonify({'error': 'An unexpected error occurred'}), 500
+
+# Error handlers
+@app.errorhandler(413)
+def request_entity_too_large(error):
+    return jsonify({'error': 'File too large. Maximum size is 5MB'}), 413
+
+@app.errorhandler(500)
+def internal_server_error(error):
+    return jsonify({'error': 'Internal server error'}), 500
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    # Verify model loading before starting server
+    try:
+        model = load_ml_model()
+        app.run(debug=False)  # Set debug=False in production
+    except ModelError as e:
+        logger.critical(f"Failed to start server: {str(e)}")
