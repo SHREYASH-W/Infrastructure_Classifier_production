@@ -16,11 +16,10 @@ app = Flask(__name__,
             static_folder='../frontend',  # Point to frontend directory
             static_url_path='')  # Serve static files from root URL
 
-# Configure CORS with combined settings
+# Configure CORS for localhost
 CORS(app, resources={
     r"/predict": {
-        "origins": ["https://infrastructure-classifier-production.onrender.com",
-                    "http://localhost:5000"],
+        "origins": ["http://localhost:5000", "http://127.0.0.1:5000"],
         "methods": ["POST", "OPTIONS"],
         "allow_headers": ["Content-Type", "Accept"]
     },
@@ -164,39 +163,30 @@ def predict():
         if model is None:
             logger.error("Model not loaded")
             return jsonify({'error': 'Model not loaded'}), 500
-
         if 'file' not in request.files:
             logger.error("No file uploaded")
             return jsonify({'error': 'No file uploaded'}), 400
-
         file = request.files['file']
         if not file or not file.filename:
             logger.error("No file selected")
             return jsonify({'error': 'No file selected'}), 400
-
         if not allowed_file(file.filename):
             logger.error(f"Invalid file type: {file.filename}")
             return jsonify({'error': 'Invalid file type. Allowed types: PNG, JPG, JPEG, WebP'}), 400
-
         img_bytes = file.read()
         if not img_bytes:
             logger.error("Empty file uploaded")
             return jsonify({'error': 'Empty file'}), 400
-
         processed_image = preprocess_image(img_bytes)
         predictions = model.predict(processed_image)
         analysis = analyze_infrastructure(predictions)
-
         return jsonify(analysis)
-
     except ImageProcessingError as e:
         logger.error(f"Image processing error: {str(e)}")
         return jsonify({'error': str(e)}), 400
-
     except ModelError as e:
         logger.error(f"Model error: {str(e)}")
         return jsonify({'error': 'Model prediction failed'}), 500
-
     except Exception as e:
         logger.error(f"Unexpected error: {str(e)}")
         return jsonify({'error': 'An unexpected error occurred'}), 500
@@ -212,4 +202,4 @@ def internal_server_error(error):
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port, debug=False)  # Set debug=False in production
+    app.run(host='0.0.0.0', port=port, debug=True)  # Set debug=True for development
