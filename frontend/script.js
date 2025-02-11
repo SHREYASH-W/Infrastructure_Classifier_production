@@ -8,7 +8,8 @@ document.addEventListener('DOMContentLoaded', function () {
     const resultSection = document.getElementById('result');
     const removeImageBtn = document.getElementById('removeImage');
 
-    const API_URL = 'http://127.0.0.1:5000/predict';
+    // 🔹 Use your deployed backend URL instead of localhost
+    const API_URL = 'https://your-backend.onrender.com/predict';  
     const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 
     const classDescriptions = [
@@ -18,7 +19,7 @@ document.addEventListener('DOMContentLoaded', function () {
         "Good Infrastructure (Type B)"
     ];
 
-    // Drag and drop handlers
+    // 🟢 Drag and Drop Handlers
     ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
         dropZone.addEventListener(eventName, preventDefaults, false);
     });
@@ -29,30 +30,18 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     ['dragenter', 'dragover'].forEach(eventName => {
-        dropZone.addEventListener(eventName, highlight, false);
+        dropZone.addEventListener(eventName, () => dropZone.classList.add('highlight'), false);
     });
 
     ['dragleave', 'drop'].forEach(eventName => {
-        dropZone.addEventListener(eventName, unhighlight, false);
+        dropZone.addEventListener(eventName, () => dropZone.classList.remove('highlight'), false);
     });
 
-    function highlight() {
-        dropZone.classList.add('highlight');
-    }
+    dropZone.addEventListener('drop', function (e) {
+        handleFile(e.dataTransfer.files[0]);
+    });
 
-    function unhighlight() {
-        dropZone.classList.remove('highlight');
-    }
-
-    dropZone.addEventListener('drop', handleDrop, false);
-
-    function handleDrop(e) {
-        const dt = e.dataTransfer;
-        const file = dt.files[0];
-        handleFile(file);
-    }
-
-    // File input handler
+    // 🟢 File Input Handler
     imageUpload.addEventListener('change', function (e) {
         handleFile(e.target.files[0]);
     });
@@ -75,7 +64,7 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     }
 
-    // Remove image handler
+    // 🟢 Remove Image Handler
     removeImageBtn.addEventListener('click', function () {
         imageUpload.value = '';
         previewSection.hidden = true;
@@ -84,8 +73,13 @@ document.addEventListener('DOMContentLoaded', function () {
         resultSection.hidden = true;
     });
 
-    // Classification handler
+    // 🟢 Classification Handler
     classifyBtn.addEventListener('click', async function () {
+        if (!imageUpload.files[0]) {
+            showNotification('No image selected', 'error');
+            return;
+        }
+
         try {
             const formData = new FormData();
             formData.append('file', imageUpload.files[0]);
@@ -107,7 +101,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 showNotification(data.error || 'Classification failed', 'error');
             }
         } catch (error) {
-            showNotification(error.message || 'An error occurred', 'error');
+            showNotification('Network error or server unreachable', 'error');
         } finally {
             loadingContainer.hidden = true;
             classifyBtn.disabled = false;
@@ -115,69 +109,36 @@ document.addEventListener('DOMContentLoaded', function () {
     });
 
     function displayResults(data) {
-        const resultsHTML = `
+        resultSection.innerHTML = `
             <div class="result-card">
-                <div class="result-header">
-                    <h2>Analysis Results</h2>
-                    <span class="confidence">
-                        ${(data.quality_confidence * 100).toFixed(1)}% Confidence
-                    </span>
-                </div>
-                
-                <div class="quality-summary">
-                    <h3>${data.is_good === 1 ? 'Good' : 'Poor'} Infrastructure</h3>
-                    <p>Overall Confidence: ${(data.quality_confidence * 100).toFixed(1)}%</p>
-                </div>
-    
-                <div class="quality-distribution">
-                    <h3>Quality Distribution</h3>
-                    <div class="progress-bar">
-                        <span>Good Infrastructure: ${(data.good_infrastructure_prob * 100).toFixed(1)}%</span>
-                        <div class="progress-fill good" 
-                            style="width: ${(data.good_infrastructure_prob * 100)}%">
-                        </div>
-                    </div>
-                    <div class="progress-bar">
-                        <span>Poor Infrastructure: ${(data.bad_infrastructure_prob * 100).toFixed(1)}%</span>
-                        <div class="progress-fill bad" 
-                            style="width: ${(data.bad_infrastructure_prob * 100)}%">
-                        </div>
+                <h2>Analysis Results</h2>
+                <p><strong>${data.is_good === 1 ? 'Good' : 'Poor'} Infrastructure</strong></p>
+                <p>Overall Confidence: ${(data.quality_confidence * 100).toFixed(1)}%</p>
+                <h3>Quality Distribution</h3>
+                <div class="progress-bar">
+                    <div class="progress-fill good" style="width: ${(data.good_infrastructure_prob * 100)}%">
+                        ${data.good_infrastructure_prob.toFixed(2) * 100}%
                     </div>
                 </div>
-    
-                <div class="specific-classification">
-                    <h3>Specific Classification</h3>
-                    <p>Class: ${classDescriptions[data.specific_class]}</p>
-                    <p>Class Confidence: ${(data.class_confidence * 100).toFixed(1)}%</p>
+                <div class="progress-bar">
+                    <div class="progress-fill bad" style="width: ${(data.bad_infrastructure_prob * 100)}%">
+                        ${data.bad_infrastructure_prob.toFixed(2) * 100}%
+                    </div>
                 </div>
-    
-                <div class="individual-probabilities">
-                    <h3>Individual Class Probabilities</h3>
-                    ${data.individual_probs.map((prob, idx) => `
-                        <div class="progress-bar">
-                            <span>${classDescriptions[idx]}: ${(prob * 100).toFixed(1)}%</span>
-                            <div class="progress-fill ${idx < 2 ? 'bad' : 'good'}" 
-                                style="width: ${prob * 100}%">
-                            </div>
-                        </div>
-                    `).join('')}
-                </div>
+                <h3>Specific Classification</h3>
+                <p>Class: ${classDescriptions[data.specific_class]}</p>
+                <p>Class Confidence: ${(data.class_confidence * 100).toFixed(1)}%</p>
             </div>
         `;
-    
-        resultSection.innerHTML = resultsHTML;
         resultSection.hidden = false;
-        resultSection.classList.add('visible'); // Add this if you have a fade-in animation
     }
+
     function showNotification(message, type) {
         const notification = document.createElement('div');
         notification.className = `notification ${type}`;
         notification.textContent = message;
 
         document.body.appendChild(notification);
-
-        setTimeout(() => {
-            notification.remove();
-        }, 3000);
+        setTimeout(() => notification.remove(), 3000);
     }
 });
