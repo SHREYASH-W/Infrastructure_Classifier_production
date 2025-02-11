@@ -13,7 +13,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // Constants
     const CONFIG = {
-        API_URL: 'https://infrastructure-classifier-production.onrender.com/predict',
+        API_URL: 'http://localhost:5000/predict', // Updated to local server
         MAX_FILE_SIZE: 5 * 1024 * 1024, // 5MB
         NOTIFICATION_DURATION: 3000,
         ACCEPTED_FILE_TYPES: ['image/jpeg', 'image/png', 'image/webp'],
@@ -37,7 +37,7 @@ document.addEventListener('DOMContentLoaded', function () {
     // Add CSS styles for notifications and loading
     const style = document.createElement('style');
     style.textContent = `
-        .notification.warning {
+        notification.warning {
             background-color: #fff3cd;
             color: #856404;
             border: 1px solid #ffeeba;
@@ -45,7 +45,7 @@ document.addEventListener('DOMContentLoaded', function () {
             margin-bottom: 10px;
             border-radius: 5px;
         }
-        .notification.error {
+        notification.error {
             background-color: #f8d7da;
             color: #721c24;
             border: 1px solid #f5c6cb;
@@ -53,15 +53,15 @@ document.addEventListener('DOMContentLoaded', function () {
             margin-bottom: 10px;
             border-radius: 5px;
         }
-        .loading-text {
+        loading-text {
             text-align: center;
             margin-top: 10px;
         }
-        .loading-text small {
+        loading-text small {
             color: #666;
             font-size: 0.8em;
         }
-        .progress-bar {
+        progress-bar {
             width: 100%;
             height: 20px;
             background-color: #e9ecef;
@@ -69,14 +69,14 @@ document.addEventListener('DOMContentLoaded', function () {
             overflow: hidden;
             margin: 5px 0;
         }
-        .progress-bar-fill {
+        progress-bar-fill {
             height: 100%;
             transition: width 0.3s ease;
         }
-        .progress-bar-fill.good {
+        progress-bar-fill.good {
             background-color: #28a745;
         }
-        .progress-bar-fill.bad {
+        progress-bar-fill.bad {
             background-color: #dc3545;
         }
     `;
@@ -209,10 +209,10 @@ document.addEventListener('DOMContentLoaded', function () {
         const sanitizedValue = Math.max(0, Math.min(1, value));
         const percentage = (sanitizedValue * 100).toFixed(1);
         return `
-            <div class="progress-bar">
-                <div class="progress-bar-fill ${type}" style="width: ${percentage}%"></div>
-                <small>${label}: ${percentage}%</small>
-            </div>
+            <progress-bar>
+                <progress-bar-fill class="${type}" style="width: ${percentage}%;"></progress-bar-fill>
+            </progress-bar>
+            <div>${label}: ${percentage}%</div>
         `;
     }
 
@@ -265,7 +265,7 @@ document.addEventListener('DOMContentLoaded', function () {
             elements.classifyBtn.disabled = true;
             updateUIForClassification(true);
             elements.loadingContainer.innerHTML = `
-                <p>Analyzing infrastructure...</p>
+                <loading-text>Analyzing infrastructure...</loading-text>
                 <small>First analysis may take up to 2-3 minutes due to cold start</small>
             `;
             const data = await classifyImage(file);
