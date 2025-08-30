@@ -8,7 +8,7 @@ from PIL import Image
 import io
 import logging
 
-app = Flask(__name__)
+app = Flask(__name__, template_folder="templates", static_folder="static", static_url_path="/static")
 CORS(app)
 
 # Set up logging
