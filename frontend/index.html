@@ -1,60 +1,227 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Smart Infrastructure Analyzer</title>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-    <link rel="stylesheet" href="style.css">
+    <title>Infrastructure Classifier</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    animation: {
+                        'float': 'float 6s ease-in-out infinite',
+                        'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+                        'slide-up': 'slideUp 0.5s ease-out',
+                        'fade-in': 'fadeIn 0.6s ease-out',
+                        'bounce-gentle': 'bounceGentle 2s ease-in-out infinite',
+                    },
+                    keyframes: {
+                        float: {
+                            '0%, 100%': { transform: 'translateY(0px)' },
+                            '50%': { transform: 'translateY(-20px)' }
+                        },
+                        slideUp: {
+                            '0%': { transform: 'translateY(100%)', opacity: '0' },
+                            '100%': { transform: 'translateY(0)', opacity: '1' }
+                        },
+                        fadeIn: {
+                            '0%': { opacity: '0' },
+                            '100%': { opacity: '1' }
+                        },
+                        bounceGentle: {
+                            '0%, 100%': { transform: 'translateY(0)' },
+                            '50%': { transform: 'translateY(-10px)' }
+                        }
+                    },
+                    backgroundImage: {
+                        'gradient-radial': 'radial-gradient(var(--tw-gradient-stops))',
+                        'gradient-conic': 'conic-gradient(from 180deg at 50% 50%, var(--tw-gradient-stops))',
+                    },
+                    fontFamily: {
+                        'display': ['Inter', 'system-ui', 'sans-serif'],
+                    }
+                }
+            }
+        }
+    </script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
 </head>
-<body>
-    <div class="waves-container">
-        <div class="wave"></div>
-        <div class="wave"></div>
-        <div class="wave"></div>
+<body class="bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 min-h-screen font-display">
+    <!-- Background Effects -->
+    <div class="fixed inset-0 overflow-hidden pointer-events-none">
+        <div class="absolute -top-1/2 -right-1/2 w-96 h-96 bg-purple-500/20 rounded-full blur-3xl animate-float"></div>
+        <div class="absolute -bottom-1/2 -left-1/2 w-96 h-96 bg-blue-500/20 rounded-full blur-3xl animate-float" style="animation-delay: 3s;"></div>
+        <div class="absolute top-1/4 left-1/4 w-64 h-64 bg-cyan-500/10 rounded-full blur-2xl animate-pulse-slow"></div>
     </div>
 
-    <main class="container">
-        <div class="glass-card">
-            <h1>Smart Infrastructure Analyzer</h1>
-            <p class="subtitle">Advanced AI-powered infrastructure quality assessment</p>
+    <!-- Navigation -->
+    <nav class="relative z-10 p-6">
+        <div class="max-w-7xl mx-auto flex justify-between items-center">
+            <div class="flex items-center space-x-3">
+                <div class="w-10 h-10 bg-gradient-to-r from-cyan-400 to-purple-500 rounded-lg flex items-center justify-center">
+                    <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path>
+                    </svg>
+                </div>
+                <h1 class="text-2xl font-bold bg-gradient-to-r from-white to-gray-300 bg-clip-text text-transparent">
+                    Infrastructure AI
+                </h1>
+            </div>
+            <div class="hidden md:flex space-x-6 text-gray-300">
+                <a href="#" class="hover:text-white transition-colors">Dashboard</a>
+                <a href="#" class="hover:text-white transition-colors">Analytics</a>
+                <a href="#" class="hover:text-white transition-colors">Reports</a>
+            </div>
+        </div>
+    </nav>
 
-            <div class="upload-section">
-                <div class="upload-area" id="dropZone">
-                    <i class="fas fa-cloud-upload-alt"></i>
-                    <h3>Drag & Drop Image</h3>
-                    <p>or</p>
-                    <label for="imageUpload" class="upload-btn">Browse Files</label>
-                    <input type="file" id="imageUpload" accept="image/*" hidden>
-                    <p class="upload-info">Supports: JPG, PNG (Max 5MB)</p>
+    <!-- Main Content -->
+    <main class="relative z-10 max-w-6xl mx-auto px-6 py-12">
+        <!-- Hero Section -->
+        <div class="text-center mb-16">
+            <h2 class="text-5xl md:text-6xl font-extrabold bg-gradient-to-r from-cyan-400 via-purple-500 to-pink-500 bg-clip-text text-transparent mb-6 animate-fade-in">
+                AI-Powered Infrastructure Analysis
+            </h2>
+            <p class="text-xl text-gray-300 max-w-3xl mx-auto leading-relaxed animate-fade-in" style="animation-delay: 0.2s;">
+                Upload infrastructure images and get instant AI-powered quality assessments with detailed confidence metrics and classification results.
+            </p>
+        </div>
+
+        <!-- Upload Section -->
+        <div class="grid lg:grid-cols-2 gap-12 mb-16">
+            <!-- Upload Card -->
+            <div class="bg-white/10 backdrop-blur-lg rounded-2xl p-8 border border-white/20 shadow-2xl animate-slide-up">
+                <div class="mb-6">
+                    <h3 class="text-2xl font-bold text-white mb-2">Upload Image</h3>
+                    <p class="text-gray-300">Select an infrastructure image for AI analysis</p>
                 </div>
 
-                <div class="preview-section" id="previewSection" hidden>
-                    <div class="preview-container">
-                        <img id="imagePreview" src="#" alt="Preview">
-                        <button class="remove-btn" id="removeImage">
-                            <i class="fas fa-times"></i>
+                <!-- File Upload Area -->
+                <div id="dropZone" class="border-2 border-dashed border-gray-400 rounded-xl p-8 text-center transition-all duration-300 hover:border-purple-400 hover:bg-purple-500/5 cursor-pointer">
+                    <div id="uploadContent">
+                        <svg class="w-16 h-16 text-gray-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+                        </svg>
+                        <h4 class="text-lg font-semibold text-white mb-2">Drop your image here</h4>
+                        <p class="text-gray-400 mb-4">or click to browse files</p>
+                        <button class="bg-gradient-to-r from-cyan-500 to-purple-600 text-white px-6 py-3 rounded-lg font-semibold hover:shadow-lg transition-all duration-300 transform hover:scale-105">
+                            Choose File
                         </button>
                     </div>
-                    <button class="analyze-btn" id="classifyBtn" disabled>
-                        <i class="fas fa-microscope"></i>
-                        Analyze Infrastructure
-                    </button>
+                    <input type="file" id="imageInput" accept="image/*" class="hidden">
+                </div>
+
+                <!-- Image Preview -->
+                <div id="imagePreview" class="mt-6 hidden">
+                    <div class="relative">
+                        <img id="previewImg" class="w-full h-64 object-cover rounded-xl" alt="Preview">
+                        <button id="removeImage" class="absolute top-3 right-3 bg-red-500 text-white rounded-full w-8 h-8 flex items-center justify-center hover:bg-red-600 transition-colors">
+                            ×
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Analyze Button -->
+                <button id="analyzeBtn" class="w-full mt-6 bg-gradient-to-r from-green-500 to-emerald-600 text-white py-4 rounded-xl font-bold text-lg shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none hidden">
+                    <span id="analyzeText">Analyze Infrastructure</span>
+                    <svg id="loadingSpinner" class="hidden animate-spin w-5 h-5 inline-block ml-2" fill="none" viewBox="0 0 24 24">
+                        <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" class="opacity-25"></circle>
+                        <path fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" class="opacity-75"></path>
+                    </svg>
+                </button>
+            </div>
+
+            <!-- Results Card -->
+            <div class="bg-white/10 backdrop-blur-lg rounded-2xl p-8 border border-white/20 shadow-2xl animate-slide-up" style="animation-delay: 0.1s;">
+                <div class="mb-6">
+                    <h3 class="text-2xl font-bold text-white mb-2">Analysis Results</h3>
+                    <p class="text-gray-300">AI-powered infrastructure quality assessment</p>
+                </div>
+
+                <div id="resultsContainer" class="hidden">
+                    <!-- Overall Quality -->
+                    <div class="mb-8">
+                        <div class="flex items-center justify-between mb-4">
+                            <h4 class="text-lg font-semibold text-white">Overall Quality</h4>
+                            <div id="qualityBadge" class="px-4 py-2 rounded-full text-sm font-bold"></div>
+                        </div>
+                        <div class="bg-gray-700 rounded-full h-3 overflow-hidden">
+                            <div id="qualityProgress" class="h-full transition-all duration-1000 ease-out"></div>
+                        </div>
+                        <div class="flex justify-between mt-2 text-sm text-gray-400">
+                            <span>Poor</span>
+                            <span id="confidenceText"></span>
+                            <span>Excellent</span>
+                        </div>
+                    </div>
+
+                    <!-- Detailed Classification -->
+                    <div class="mb-8">
+                        <h4 class="text-lg font-semibold text-white mb-4">Classification Details</h4>
+                        <div id="classificationDetails" class="space-y-3">
+                            <!-- Classification items will be populated here -->
+                        </div>
+                    </div>
+
+                    <!-- Probability Distribution -->
+                    <div>
+                        <h4 class="text-lg font-semibold text-white mb-4">Probability Distribution</h4>
+                        <div id="probabilityBars" class="space-y-3">
+                            <!-- Probability bars will be populated here -->
+                        </div>
+                    </div>
+                </div>
+
+                <div id="noResults" class="text-center py-12">
+                    <svg class="w-24 h-24 text-gray-500 mx-auto mb-4 animate-bounce-gentle" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 00-2-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
+                    </svg>
+                    <h4 class="text-xl font-semibold text-gray-400 mb-2">Upload an image to see results</h4>
+                    <p class="text-gray-500">AI analysis will appear here</p>
                 </div>
             </div>
+        </div>
 
-            <div class="loading-container" id="loadingContainer" hidden>
-                <div class="pulse-loader"></div>
-                <p>Analyzing infrastructure quality...</p>
+        <!-- Features Section -->
+        <div class="grid md:grid-cols-3 gap-8 mb-16">
+            <div class="bg-white/5 backdrop-blur-sm rounded-xl p-6 border border-white/10 hover:bg-white/10 transition-all duration-300 transform hover:scale-105">
+                <div class="w-12 h-12 bg-gradient-to-r from-blue-500 to-cyan-500 rounded-lg flex items-center justify-center mb-4">
+                    <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                    </svg>
+                </div>
+                <h3 class="text-lg font-semibold text-white mb-2">Lightning Fast</h3>
+                <p class="text-gray-400">Get instant results with our optimized AI model processing</p>
             </div>
 
-            <div class="results" id="result" hidden>
-                <!-- Results will be inserted here by JavaScript -->
+            <div class="bg-white/5 backdrop-blur-sm rounded-xl p-6 border border-white/10 hover:bg-white/10 transition-all duration-300 transform hover:scale-105">
+                <div class="w-12 h-12 bg-gradient-to-r from-purple-500 to-pink-500 rounded-lg flex items-center justify-center mb-4">
+                    <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                    </svg>
+                </div>
+                <h3 class="text-lg font-semibold text-white mb-2">Highly Accurate</h3>
+                <p class="text-gray-400">Advanced neural networks trained on thousands of infrastructure images</p>
+            </div>
+
+            <div class="bg-white/5 backdrop-blur-sm rounded-xl p-6 border border-white/10 hover:bg-white/10 transition-all duration-300 transform hover:scale-105">
+                <div class="w-12 h-12 bg-gradient-to-r from-green-500 to-emerald-500 rounded-lg flex items-center justify-center mb-4">
+                    <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z"></path>
+                    </svg>
+                </div>
+                <h3 class="text-lg font-semibold text-white mb-2">Detailed Analysis</h3>
+                <p class="text-gray-400">Comprehensive reports with confidence scores and classifications</p>
             </div>
         </div>
     </main>
 
-    <script src="script.js"></script>
+    <!-- Footer -->
+    <footer class="relative z-10 text-center py-8 text-gray-400 border-t border-white/10">
+        <p>&copy; 2025 Infrastructure AI Classifier. Powered by advanced machine learning.</p>
+    </footer>
+
+    <script src="app.js"></script>
 </body>
 </html>
