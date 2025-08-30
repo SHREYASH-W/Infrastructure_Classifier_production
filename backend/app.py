@@ -140,9 +140,10 @@ def analyze_infrastructure(predictions, is_dummy=False):
     
     return result
 
+# Make sure your Flask route returns the fixed HTML
 @app.route('/')
 def home():
-    return render_template('index.html')
+    return render_template('index.html')  # Use the fixed HTML file
 
 @app.route('/health')
 def health():
