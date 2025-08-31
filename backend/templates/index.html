@@ -226,8 +226,10 @@
 // Infrastructure Classifier JavaScript
 class InfrastructureClassifier {
     constructor() {
-        // Automatically detect the API URL based on the current environment
-        this.apiUrl = window.location.origin; // This will use the same domain as the webpage
+        // Auto-detect environment: use local for development, Render for production
+        this.apiUrl = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
+            ? 'http://localhost:5000'  // Local development
+            : "https://infrastructure-classifier-production-1.onrender.com";  // Production
         this.classNames = [
             'Poor Infrastructure',
             'Below Average Infrastructure', 
@@ -240,6 +242,31 @@ class InfrastructureClassifier {
     init() {
         this.setupEventListeners();
         this.setupDropZone();
+        this.checkServiceHealth();
+    }
+
+    // Add service health check
+    async checkServiceHealth() {
+        try {
+            const response = await fetch(`${this.apiUrl}/health`, {
+                method: 'GET',
+                signal: AbortSignal.timeout(10000) // 10 second timeout
+            });
+            
+            if (response.ok) {
+                const health = await response.json();
+                if (health.dummy_mode) {
+                    this.showNotification('Service is running in test mode - predictions will not be real!', 'error');
+                } else {
+                    console.log('Service is healthy and ready');
+                }
+            } else {
+                this.showNotification('Service may be starting up. Please wait a moment before analyzing images.', 'error');
+            }
+        } catch (error) {
+            console.warn('Health check failed:', error);
+            this.showNotification('Service may be starting up. This can take 1-2 minutes on Render.', 'error');
+        }
     }
 
     setupEventListeners() {
@@ -320,10 +347,10 @@ class InfrastructureClassifier {
             return;
         }
 
-        // Validate file size (max 10MB)
-        const maxSize = 10 * 1024 * 1024; // 10MB in bytes
+        // Validate file size (max 5MB for Render)
+        const maxSize = 5 * 1024 * 1024; // 5MB in bytes
         if (file.size > maxSize) {
-            this.showNotification('File size must be less than 10MB.', 'error');
+            this.showNotification('File size must be less than 5MB.', 'error');
             return;
         }
 
@@ -379,28 +406,79 @@ class InfrastructureClassifier {
             return;
         }
 
+        // Check file size before uploading (5MB limit for Render)
+        if (file.size > 5 * 1024 * 1024) {
+            this.showNotification('File too large. Please use images smaller than 5MB.', 'error');
+            return;
+        }
+
         this.setLoadingState(true);
 
         try {
             const formData = new FormData();
             formData.append('file', file);
 
+            // Increased timeout for Render cold starts and model loading
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 120000); // 2 minutes timeout
+
             const response = await fetch(`${this.apiUrl}/predict`, {
                 method: 'POST',
-                body: formData
+                body: formData,
+                signal: controller.signal,
+                headers: {
+                    // Don't set Content-Type, let browser set it with boundary for FormData
+                }
             });
 
+            clearTimeout(timeoutId);
+
             if (!response.ok) {
+                if (response.status === 502) {
+                    throw new Error('Service is starting up or overloaded. Please wait 1-2 minutes and try again.');
+                }
+                if (response.status === 503) {
+                    throw new Error('Service temporarily unavailable. Please wait a moment and try again.');
+                }
+                if (response.status === 500) {
+                    throw new Error('Server error. The app may be under heavy load. Please try again in a few minutes.');
+                }
+                if (response.status === 413) {
+                    throw new Error('File too large. Please use a smaller image.');
+                }
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
 
             const result = await response.json();
+            
+            // Show warning if using dummy model
+            if (result.dummy_mode) {
+                this.showNotification('Using test mode - predictions are not real!', 'error');
+            }
+            
             this.displayResults(result);
             this.showNotification('Analysis completed successfully!', 'success');
 
         } catch (error) {
             console.error('Error:', error);
-            this.showNotification('Analysis failed. Please check your connection and try again.', 'error');
+            
+            if (error.name === 'AbortError') {
+                this.showNotification('Request timed out. The server may be starting up or overloaded. Please try again in 2 minutes.', 'error');
+            } else if (error.message.includes('502')) {
+                this.showNotification('Service is starting up or overloaded. Please wait 1-2 minutes and try again.', 'error');
+            } else if (error.message.includes('Service is starting up')) {
+                this.showNotification('Service is starting up. Please wait 1-2 minutes and try again.', 'error');
+            } else if (error.message.includes('Service temporarily unavailable')) {
+                this.showNotification('Service temporarily unavailable. Please wait a moment and try again.', 'error');
+            } else if (error.message.includes('Server error')) {
+                this.showNotification('Server error. Please try again in a few minutes.', 'error');
+            } else if (error.message.includes('File too large')) {
+                this.showNotification('File too large. Please use a smaller image (under 5MB).', 'error');
+            } else if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
+                this.showNotification('Network error. Please check your connection and try again.', 'error');
+            } else {
+                this.showNotification('Analysis failed. Please try again or contact support if the problem persists.', 'error');
+            }
         } finally {
             this.setLoadingState(false);
         }
@@ -413,7 +491,7 @@ class InfrastructureClassifier {
 
         if (isLoading) {
             analyzeBtn.disabled = true;
-            analyzeText.textContent = 'Analyzing...';
+            analyzeText.textContent = 'Analyzing... (This may take 1-2 minutes on first use)';
             loadingSpinner.classList.remove('hidden');
         } else {
             analyzeBtn.disabled = false;
@@ -564,6 +642,11 @@ class InfrastructureClassifier {
         noResults.classList.remove('hidden');
     }
 
+    resetApplication() {
+        this.resetImageInput();
+        this.hideResults();
+    }
+
     showNotification(message, type = 'info') {
         // Create notification element
         const notification = document.createElement('div');
@@ -601,7 +684,7 @@ class InfrastructureClassifier {
             notification.classList.remove('translate-x-full');
         }, 100);
         
-        // Auto remove after 5 seconds
+        // Auto remove after 7 seconds (increased for longer messages)
         setTimeout(() => {
             if (notification.parentNode) {
                 notification.classList.add('translate-x-full');
@@ -611,7 +694,7 @@ class InfrastructureClassifier {
                     }
                 }, 300);
             }
-        }, 5000);
+        }, 7000);
     }
 }
 

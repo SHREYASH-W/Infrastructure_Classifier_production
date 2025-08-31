@@ -8,18 +8,33 @@ from PIL import Image
 import io
 import logging
 import os
+import time
+import gc
+from threading import Lock
 
-app = Flask(__name__, template_folder="templates", static_folder="static", static_url_path="/static")
+app = Flask(__name__, 
+            template_folder=os.path.join(os.path.dirname(__file__), "templates"))
 CORS(app)
 
+# Configure TensorFlow for memory efficiency
+tf.config.experimental.enable_memory_growth = True
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # Reduce TensorFlow logging
+
 # Set up logging
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)  # Changed to INFO to reduce log spam
 logger = logging.getLogger(__name__)
+
+# Model configuration
+MODEL_PATH = os.path.join(os.path.dirname(__file__), "infrastructure_model.h5")
+model = None
+model_lock = Lock()
+last_prediction_time = time.time()
 
 # Deployment debugging
 print("=== DEPLOYMENT DEBUG ===")
 print(f"Current working directory: {os.getcwd()}")
 print(f"Environment: {os.environ.get('RENDER', 'Not on Render')}")
+print(f"Available memory: {os.environ.get('RENDER_SERVICE_MEMORY', 'Unknown')}")
 print("Files in current directory:")
 for root, dirs, files in os.walk('.'):
     level = root.replace('.', '').count(os.sep)
@@ -30,138 +45,230 @@ for root, dirs, files in os.walk('.'):
         file_path = os.path.join(root, file)
         try:
             size = os.path.getsize(file_path)
-            print(f"{subindent}{file} ({size} bytes)")
+            size_mb = size / (1024 * 1024)
+            print(f"{subindent}{file} ({size_mb:.2f} MB)")
         except:
             print(f"{subindent}{file} (size unknown)")
 print("=== END DEBUG ===")
 
-# Model configuration
-MODEL_PATH = "infrastructure_model.h5"
-model = None
-
 def load_model_safe():
-    """Safely load the model with error handling"""
+    """Safely load the model with error handling and memory optimization"""
     global model
     
-    if model is not None:
-        return model
-    
-    if not os.path.exists(MODEL_PATH):
-        logger.error(f"Model file not found: {MODEL_PATH}")
-        logger.info(f"Available files: {os.listdir('.')}")
-        return None
-    
-    try:
-        model = load_model(MODEL_PATH)
-        logger.info(f"Model loaded successfully from {MODEL_PATH}")
-        return model
-    except Exception as e:
-        logger.error(f"Error loading model: {str(e)}")
-        return None
+    with model_lock:
+        if model is not None:
+            return model
+        
+        if not os.path.exists(MODEL_PATH):
+            logger.error(f"Model file not found: {MODEL_PATH}")
+            logger.info(f"Available files: {os.listdir('.')}")
+            return None
+        
+        try:
+            logger.info("Loading model... This may take a moment.")
+            start_time = time.time()
+            
+            # Load model with memory optimization
+            model = load_model(MODEL_PATH, compile=False)  # Don't compile to save memory
+            model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
+            
+            load_time = time.time() - start_time
+            logger.info(f"Model loaded successfully in {load_time:.2f} seconds")
+            
+            # Force garbage collection
+            gc.collect()
+            
+            return model
+            
+        except Exception as e:
+            logger.error(f"Error loading model: {str(e)}")
+            return None
 
 def create_dummy_model():
-    """Create a dummy model for testing when real model is not available"""
-    from tensorflow.keras.models import Sequential
-    from tensorflow.keras.layers import Dense, Flatten, Conv2D, MaxPooling2D
-    
-    model = Sequential([
-        Conv2D(32, (3, 3), activation='relu', input_shape=(224, 224, 3)),
-        MaxPooling2D(2, 2),
-        Conv2D(64, (3, 3), activation='relu'),
-        MaxPooling2D(2, 2),
-        Flatten(),
-        Dense(128, activation='relu'),
-        Dense(4, activation='softmax')  # 4 classes based on your analysis function
-    ])
-    
-    model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
-    logger.info("Created dummy model for testing")
-    return model
+    """Create a lightweight dummy model for testing"""
+    try:
+        from tensorflow.keras.models import Sequential
+        from tensorflow.keras.layers import Dense, Flatten, Conv2D, MaxPooling2D
+        
+        # Smaller dummy model to save memory
+        model = Sequential([
+            Conv2D(16, (3, 3), activation='relu', input_shape=(224, 224, 3)),  # Reduced filters
+            MaxPooling2D(4, 4),  # Larger pooling
+            Conv2D(32, (3, 3), activation='relu'),
+            MaxPooling2D(4, 4),
+            Flatten(),
+            Dense(64, activation='relu'),  # Reduced neurons
+            Dense(4, activation='softmax')
+        ])
+        
+        model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
+        logger.info("Created lightweight dummy model for testing")
+        return model
+        
+    except Exception as e:
+        logger.error(f"Error creating dummy model: {str(e)}")
+        return None
 
 def get_model():
     """Get model (real or dummy) with fallback"""
-    real_model = load_model_safe()
-    
-    if real_model is not None:
-        return real_model, False  # Real model
-    
-    logger.warning("Using dummy model - predictions will be random!")
-    return create_dummy_model(), True  # Dummy model
+    try:
+        real_model = load_model_safe()
+        
+        if real_model is not None:
+            return real_model, False  # Real model
+        
+        logger.warning("Real model failed to load, trying dummy model")
+        dummy_model = create_dummy_model()
+        
+        if dummy_model is not None:
+            return dummy_model, True  # Dummy model
+        
+        logger.error("Both real and dummy models failed to load")
+        return None, True
+        
+    except Exception as e:
+        logger.error(f"Error in get_model: {str(e)}")
+        return None, True
 
 def preprocess_image(img_bytes):
-    """Preprocess image for model prediction"""
+    """Preprocess image for model prediction with memory optimization"""
     try:
+        # Limit image size to reduce memory usage
+        MAX_SIZE = (512, 512)  # Resize large images first
+        
         img = Image.open(io.BytesIO(img_bytes))
         
         # Convert to RGB if needed
         if img.mode != 'RGB':
             img = img.convert('RGB')
+        
+        # Resize large images first to save memory
+        if img.size[0] > MAX_SIZE[0] or img.size[1] > MAX_SIZE[1]:
+            img.thumbnail(MAX_SIZE, Image.Resampling.LANCZOS)
             
-        img = img.resize((224, 224))
+        # Final resize to model input size
+        img = img.resize((224, 224), Image.Resampling.LANCZOS)
+        
+        # Convert to array
         img_array = image.img_to_array(img)
         img_array = np.expand_dims(img_array, axis=0)
-        img_array = img_array / 255.0
+        img_array = img_array.astype(np.float32) / 255.0  # Use float32 to save memory
+        
+        # Clean up
+        del img
+        gc.collect()
+        
         return img_array
+        
     except Exception as e:
         logger.error(f"Error preprocessing image: {str(e)}")
         raise
 
 def analyze_infrastructure(predictions, is_dummy=False):
-    """
-    Analyze predictions to determine infrastructure quality
-    """
-    # Convert numpy array to Python list
-    predictions = predictions.tolist()
-   
-    # Get probabilities for each category
-    bad_infrastructure_prob = predictions[0][0] + predictions[0][1]  # Class 0 + Class 1
-    good_infrastructure_prob = predictions[0][2] + predictions[0][3]  # Class 2 + Class 3
-   
-    # Get individual class probabilities
-    class_probs = predictions[0]
-    specific_class = np.argmax(class_probs)
-   
-    # Determine overall quality (convert bool to int)
-    is_good = 1 if good_infrastructure_prob > bad_infrastructure_prob else 0
-   
-    result = {
-        'is_good': is_good,  # 1 for good, 0 for bad
-        'quality_confidence': float(max(good_infrastructure_prob, bad_infrastructure_prob)),
-        'specific_class': int(specific_class),
-        'class_confidence': float(class_probs[specific_class]),
-        'bad_infrastructure_prob': float(bad_infrastructure_prob),
-        'good_infrastructure_prob': float(good_infrastructure_prob),
-        'individual_probs': [float(p) for p in class_probs]
-    }
-    
-    if is_dummy:
-        result['warning'] = 'Using dummy model - predictions are not real!'
-        result['dummy_mode'] = True
-    
-    return result
+    """Analyze predictions to determine infrastructure quality"""
+    try:
+        # Convert numpy array to Python list
+        if isinstance(predictions, np.ndarray):
+            predictions = predictions.tolist()
+       
+        # Get probabilities for each category
+        class_probs = predictions[0]
+        bad_infrastructure_prob = class_probs[0] + class_probs[1]  # Class 0 + Class 1
+        good_infrastructure_prob = class_probs[2] + class_probs[3]  # Class 2 + Class 3
+       
+        specific_class = np.argmax(class_probs)
+       
+        # Determine overall quality
+        is_good = 1 if good_infrastructure_prob > bad_infrastructure_prob else 0
+       
+        result = {
+            'is_good': is_good,
+            'quality_confidence': float(max(good_infrastructure_prob, bad_infrastructure_prob)),
+            'specific_class': int(specific_class),
+            'class_confidence': float(class_probs[specific_class]),
+            'bad_infrastructure_prob': float(bad_infrastructure_prob),
+            'good_infrastructure_prob': float(good_infrastructure_prob),
+            'individual_probs': [float(p) for p in class_probs]
+        }
+        
+        if is_dummy:
+            result['warning'] = 'Using dummy model - predictions are not real!'
+            result['dummy_mode'] = True
+        else:
+            result['dummy_mode'] = False
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"Error analyzing predictions: {str(e)}")
+        raise
 
-# Make sure your Flask route returns the fixed HTML
+# Routes
 @app.route('/')
 def home():
-    return render_template('index.html')  # Use the fixed HTML file
+    """Main page"""
+    return render_template('index.html')
 
 @app.route('/health')
 def health():
     """Health check endpoint"""
-    current_model, is_dummy = get_model()
+    try:
+        current_model, is_dummy = get_model()
+        return jsonify({
+            'status': 'healthy',
+            'model_loaded': current_model is not None,
+            'dummy_mode': is_dummy,
+            'model_path': MODEL_PATH,
+            'timestamp': int(time.time())
+        })
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'error': str(e),
+            'timestamp': int(time.time())
+        }), 500
+
+@app.route('/status')
+def status():
+    """Detailed status endpoint"""
+    try:
+        current_model, is_dummy = get_model()
+        return jsonify({
+            'status': 'running',
+            'model_loaded': current_model is not None,
+            'dummy_mode': is_dummy,
+            'last_prediction': int(last_prediction_time),
+            'uptime': int(time.time()),
+            'memory_info': 'available' if current_model else 'loading'
+        })
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'error': str(e)
+        }), 500
+
+@app.route('/keep-alive')
+def keep_alive():
+    """Keep-alive endpoint to prevent service from sleeping"""
     return jsonify({
-        'status': 'healthy',
-        'model_loaded': current_model is not None,
-        'dummy_mode': is_dummy,
-        'model_path': MODEL_PATH
+        'status': 'alive',
+        'timestamp': int(time.time())
     })
 
 @app.route('/predict', methods=['POST', 'OPTIONS'])
 def predict():
+    """Main prediction endpoint"""
+    global last_prediction_time
+    
     if request.method == 'OPTIONS':
         return '', 204
        
     try:
+        # Log request start
+        logger.info("Prediction request received")
+        start_time = time.time()
+        
+        # Validate request
         if 'file' not in request.files:
             return jsonify({'error': 'No file uploaded'}), 400
        
@@ -170,48 +277,137 @@ def predict():
             return jsonify({'error': 'No file selected'}), 400
             
         # Check file type
-        if not file.filename.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp')):
+        allowed_extensions = ('.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp')
+        if not file.filename.lower().endswith(allowed_extensions):
             return jsonify({'error': 'Invalid file type. Please upload an image.'}), 400
         
+        # Read and validate file
         img_bytes = file.read()
         
         if len(img_bytes) == 0:
             return jsonify({'error': 'Empty file uploaded'}), 400
+        
+        # Check file size (5MB limit for Render)
+        if len(img_bytes) > 5 * 1024 * 1024:
+            return jsonify({'error': 'File too large. Please use images smaller than 5MB.'}), 413
        
         # Get model
+        logger.info("Getting model...")
         current_model, is_dummy = get_model()
         
         if current_model is None:
             return jsonify({
                 'error': 'Model not available',
-                'details': 'Could not load model file'
+                'details': 'Could not load model file. Service may be starting up.'
             }), 503
        
         # Preprocess the image
-        processed_image = preprocess_image(img_bytes)
+        logger.info("Preprocessing image...")
+        try:
+            processed_image = preprocess_image(img_bytes)
+        except Exception as e:
+            return jsonify({
+                'error': 'Image processing failed',
+                'details': str(e)
+            }), 400
        
         # Get predictions
-        predictions = current_model.predict(processed_image, verbose=0)
+        logger.info("Making prediction...")
+        try:
+            predictions = current_model.predict(processed_image, verbose=0, batch_size=1)
+        except Exception as e:
+            logger.error(f"Prediction failed: {str(e)}")
+            return jsonify({
+                'error': 'Prediction failed',
+                'details': str(e)
+            }), 500
        
         # Analyze results
-        analysis = analyze_infrastructure(predictions, is_dummy)
-       
-        logger.info(f"Prediction completed - is_good: {analysis['is_good']}, confidence: {analysis['quality_confidence']:.3f}")
+        try:
+            analysis = analyze_infrastructure(predictions, is_dummy)
+        except Exception as e:
+            logger.error(f"Analysis failed: {str(e)}")
+            return jsonify({
+                'error': 'Analysis failed',
+                'details': str(e)
+            }), 500
+        
+        # Update last prediction time
+        last_prediction_time = time.time()
+        processing_time = last_prediction_time - start_time
+        
+        logger.info(f"Prediction completed in {processing_time:.2f}s - is_good: {analysis['is_good']}, confidence: {analysis['quality_confidence']:.3f}")
+        
+        # Clean up memory
+        del processed_image, predictions, img_bytes
+        gc.collect()
         
         return jsonify(analysis)
        
     except Exception as e:
-        logger.error(f"Error during prediction: {str(e)}")
-        return jsonify({'error': f'Prediction failed: {str(e)}'}), 500
+        logger.error(f"Unexpected error during prediction: {str(e)}")
+        return jsonify({
+            'error': 'Prediction failed',
+            'details': 'An unexpected error occurred. Please try again.'
+        }), 500
+
+@app.before_request
+def log_request():
+    """Log incoming requests"""
+    if request.endpoint not in ['keep_alive', 'health']:  # Don't spam logs with keep-alive requests
+        logger.info(f"Request: {request.method} {request.path}")
+
+@app.after_request
+def after_request(response):
+    """Add CORS headers and log responses"""
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+    response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
+    
+    if request.endpoint not in ['keep_alive', 'health']:
+        logger.info(f"Response: {response.status_code}")
+    
+    return response
+
+@app.errorhandler(413)
+def request_entity_too_large(error):
+    """Handle file too large errors"""
+    return jsonify({
+        'error': 'File too large',
+        'details': 'Please use images smaller than 5MB'
+    }), 413
+
+@app.errorhandler(500)
+def internal_server_error(error):
+    """Handle internal server errors"""
+    logger.error(f"Internal server error: {str(error)}")
+    return jsonify({
+        'error': 'Internal server error',
+        'details': 'Please try again later'
+    }), 500
 
 if __name__ == '__main__':
-    # Try to load model on startup
-    startup_model, is_dummy = get_model()
-    if startup_model is not None:
-        logger.info("Application ready with model loaded")
-    else:
-        logger.warning("Application starting without model")
+    # Configure for production
+    logger.info("Starting Flask application...")
+    
+    # Try to preload model on startup (but don't fail if it doesn't work)
+    try:
+        startup_model, is_dummy = get_model()
+        if startup_model is not None:
+            logger.info(f"Application ready with {'dummy' if is_dummy else 'real'} model loaded")
+        else:
+            logger.warning("Application starting without model - will load on first request")
+    except Exception as e:
+        logger.warning(f"Model preloading failed: {str(e)} - will load on first request")
     
     # Get port from environment variable (Render uses this)
     port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port, debug=False)
+    
+    # Production settings
+    app.run(
+        host='0.0.0.0', 
+        port=port, 
+        debug=False,
+        threaded=True,  # Enable threading for better performance
+        use_reloader=False  # Disable reloader in production
+    )
