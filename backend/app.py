@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, render_template
+from flask import Flask, request, jsonify
 from flask_cors import CORS
 import tensorflow as tf
 from tensorflow.keras.models import load_model
@@ -12,8 +12,7 @@ import time
 import gc
 from threading import Lock
 
-app = Flask(__name__, 
-            template_folder=os.path.join(os.path.dirname(__file__), "templates"))
+app = Flask(__name__)
 CORS(app)
 
 # Configure TensorFlow for memory efficiency
@@ -30,26 +29,6 @@ model = None
 model_lock = Lock()
 last_prediction_time = time.time()
 
-# Deployment debugging
-print("=== DEPLOYMENT DEBUG ===")
-print(f"Current working directory: {os.getcwd()}")
-print(f"Environment: {os.environ.get('RENDER', 'Not on Render')}")
-print(f"Available memory: {os.environ.get('RENDER_SERVICE_MEMORY', 'Unknown')}")
-print("Files in current directory:")
-for root, dirs, files in os.walk('.'):
-    level = root.replace('.', '').count(os.sep)
-    indent = ' ' * 2 * level
-    print(f"{indent}{os.path.basename(root)}/")
-    subindent = ' ' * 2 * (level + 1)
-    for file in files:
-        file_path = os.path.join(root, file)
-        try:
-            size = os.path.getsize(file_path)
-            size_mb = size / (1024 * 1024)
-            print(f"{subindent}{file} ({size_mb:.2f} MB)")
-        except:
-            print(f"{subindent}{file} (size unknown)")
-print("=== END DEBUG ===")
 
 def load_model_safe():
     """Safely load the model with error handling and memory optimization"""
@@ -206,8 +185,17 @@ def analyze_infrastructure(predictions, is_dummy=False):
 # Routes
 @app.route('/')
 def home():
-    """Main page"""
-    return render_template('index.html')
+    """API info — frontend is served by Next.js"""
+    return jsonify({
+        'service': 'Infrastructure Classifier API',
+        'version': '1.0',
+        'endpoints': {
+            'health': '/health',
+            'predict': '/predict (POST)',
+            'status': '/status'
+        },
+        'frontend': 'Served by Next.js (port 3000 in dev)'
+    })
 
 @app.route('/health')
 def health():
